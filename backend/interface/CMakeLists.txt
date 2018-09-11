@@ -52,7 +52,7 @@ foreach(test ${tests})
 
   add_executable(${test_name} ${test})
 
-  target_link_libraries(${test_name} ${PROJECT_NAME}-interface)
+  target_link_libraries(${test_name} ${PROJECT_NAME})
 
   add_test(${test_name} ${test_name})
 endforeach()

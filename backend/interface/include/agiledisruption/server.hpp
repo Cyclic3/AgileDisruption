@@ -1,21 +1,17 @@
 #pragma once
-#include "agiledisruption/internal/json.hpp"
+#include "agiledisruption/internal/common.hpp"
 
 #include <unordered_map>
 #include <functional>
 #include <string>
 #include <optional>
 #include <shared_mutex>
-#include <atomic>
-#include <chrono>
-#include <thread>
+#include <memory>
 
 namespace agiledisruption {
-  using json = nlohmann::json;
-
   class api {
   public:
-    using handler = std::function<json(json)>;
+    using handler = std::function<json(const json&)>;
   private:
     std::unordered_map<std::string, handler> _api_calls;
     mutable std::shared_mutex _api_calls_mutex;
@@ -38,33 +34,26 @@ namespace agiledisruption {
       if (iter == _api_calls.end()) return std::nullopt;
       else return { iter->second };
     }
-
-    json handle(const json&);
   };
 
   class channel_server {
   public:
-    virtual void bind(const api&);
-    virtual void unbind();
+    virtual void bind(std::shared_ptr<const api>) = 0;
+    virtual void unbind() = 0;
 
   public:
-    static std::shared_ptr<channel_server> tcp_ip(std::string ip, uint16_t port);
-    static std::shared_ptr<channel_server> fifo(std::string path);
+    inline channel_server& operator=(std::shared_ptr<const api> a) {
+      bind(std::forward<decltype(a)>(a));
+      return *this;
+    }
+
+  public:
+    //static std::shared_ptr<channel_server> tcp_ip(std::string ip, uint16_t port);
+    static std::shared_ptr<channel_server> fifo(const std::string& path);
 
   public:
     virtual ~channel_server() = default;
   };
 
-  class channel_client {
-  public:
-    virtual json request(std::string op, json);
-    virtual void submit(std::string op, json);
 
-  public:
-    static std::shared_ptr<channel_client> tcp_ip(std::string ip, uint16_t port);
-    static std::shared_ptr<channel_client> fifo(std::string path);
-
-  public:
-    virtual ~channel_client() = default;
-  };
 }
