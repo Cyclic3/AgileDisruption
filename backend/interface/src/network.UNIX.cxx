@@ -9,8 +9,6 @@
 #include <netinet/ip.h>
 #include <arpa/inet.h>
 
-#include <iostream>
-
 constexpr size_t WINDOW_SIZE = 65536;
 constexpr size_t BACKLOG = 128;
 
@@ -44,12 +42,31 @@ namespace agiledisruption {
       std::unique_lock lock{ base_mutex };
       keep_working = false;
       ::shutdown(fd, SHUT_RDWR);
-      fd = -1;
       if (worker.joinable()) worker.join();
+      fd = -1;
+
+      try {
+        if ((fd = ::socket(AF_INET, SOCK_STREAM, 0)) < 0)
+          throw std::runtime_error("Could not create socket");
+        {
+          auto ep = loopback_ep(port);
+          // Allow the port to be used again quickly
+          // We don't care if this fails, it's just for convenience
+          int one = 1;
+          setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &one, sizeof(one));
+
+          if (
+            ::bind(fd, reinterpret_cast<const sockaddr*>(&ep), sizeof(ep)) ||
+            ::listen(fd, BACKLOG)
+          ) throw std::runtime_error("Could not bind socket");
+        }
+      }
+      catch(...) { ::close(fd); throw; }
 
       base = b;
       keep_working = true;
       worker = std::thread{ &unix_tcpip_server::worker_body, this };
+
     }
 
     void unbind() override {
@@ -63,14 +80,6 @@ namespace agiledisruption {
 
     void worker_body() {
       std::shared_mutex wait_for_me;
-      fd = ::socket(AF_INET, SOCK_STREAM, 0);
-      {
-        auto ep = loopback_ep(port);
-        if (
-          ::bind(fd, reinterpret_cast<const sockaddr*>(&ep), sizeof(ep)) ||
-          ::listen(fd, BACKLOG)
-        ) return;
-      }
 
       while (keep_working) {
         // Accept the next client
@@ -83,10 +92,10 @@ namespace agiledisruption {
         std::shared_lock lock{wait_for_me};
 
         // We need a copy of client, as the loop's value will change next iteration
-        std::thread([&, client, lock{std::move(lock)}](){
-          try {
-            (void) lock;
+        std::thread([this, client, lock{std::move(lock)}](){
+          (void) lock;
 
+          try {
             std::string current_msg;
             char buffer[WINDOW_SIZE];
 
@@ -94,7 +103,7 @@ namespace agiledisruption {
             do {
               ssize_t n_read = ::read(client, buffer, WINDOW_SIZE);
               // If we hit an error or need to stop, give up
-              if (n_read < 0 || !keep_working) throw;
+              if (n_read < 0 || !keep_working) throw 0;
               else if (n_read == 0) std::this_thread::yield();
               current_msg.append(buffer, static_cast<size_t>(n_read));
             }
@@ -112,14 +121,14 @@ namespace agiledisruption {
             if (
               payload == js.end() ||
               op == js.end()
-            ) throw;
+            ) throw 0;
 
             json response;
 
             {
               std::shared_lock base_lock{base_mutex};
               if (auto handler = base->get(*op))
-                response["payload"].update((*handler)(*payload));
+                response["payload"] = (*handler)(*payload);
             }
 
             std::string response_str = response.dump();
@@ -129,7 +138,7 @@ namespace agiledisruption {
               size_t remaining = response_str.size() + 1;
               do {
                 ssize_t written = write(client, data, remaining);
-                if (written < 0) throw;
+                if (written < 0) throw 0;
                 data += written;
                 remaining -= static_cast<size_t>(written);
               }
@@ -143,6 +152,7 @@ namespace agiledisruption {
       }
 
       wait_for_me.lock();
+      wait_for_me.unlock();
       ::close(fd);
     }
 
@@ -156,6 +166,7 @@ namespace agiledisruption {
     uint16_t port;
 
     std::shared_mutex wait_for_me = {};
+
     std::atomic<bool> keep_working = true;
 
   public:
@@ -172,23 +183,24 @@ namespace agiledisruption {
       // Do this here, because the json library is weird about move constructors
       std::string request_str = request_js.dump();
 
-      std::thread{[this, request_str{std::move(request_str)}, lock{std::move(lock)}, promise{std::move(promise)}]() mutable {
-        // Shut up I am using it
+      std::thread{[this, request_str{std::move(request_str)}, promise{std::move(promise)}, lock{std::move(lock)}]() mutable {
         (void) lock;
 
         auto ep = loopback_ep(port);
         int fd = ::socket(AF_INET, SOCK_STREAM, 0);
 
         try {
-          if (::connect(fd, reinterpret_cast<const sockaddr*>(&ep), sizeof(ep)))
-            throw std::invalid_argument("Failed to connect");
+          if (fd < 0) throw 0;
+
+          if (auto code = ::connect(fd, reinterpret_cast<const sockaddr*>(&ep), sizeof(ep)))
+            throw 0;
 
           {
             const char* data = request_str.c_str();
             size_t remaining = request_str.size() + 1;
             do {
               ssize_t written = write(fd, data, remaining);
-              if (written < 0) throw;
+              if (written < 0) throw 0;
               data += written;
               remaining -= static_cast<size_t>(written);
             }
@@ -202,7 +214,7 @@ namespace agiledisruption {
           do {
             ssize_t n_read = ::read(fd, buffer, WINDOW_SIZE);
             // If we hit an error or need to stop, give up
-            if (n_read < 0 || !keep_working) throw;
+            if (n_read < 0 || !keep_working) throw 0;
             else if (n_read == 0) std::this_thread::yield();
             else response_str.append(buffer, static_cast<size_t>(n_read));
           }
@@ -229,7 +241,10 @@ namespace agiledisruption {
 
   public:
     unix_tcpip_client(uint16_t port) : port(port) {}
-    ~unix_tcpip_client() override {}
+    ~unix_tcpip_client() override {
+      wait_for_me.lock();
+      wait_for_me.unlock();
+    }
   };
 
   std::unique_ptr<channel_server> channel_server::tcp_ip(uint16_t port) {

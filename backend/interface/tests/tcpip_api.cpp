@@ -9,7 +9,8 @@ static auto a = std::make_shared<api>();
 
 json print(const json& js) {
   std::cout << static_cast<std::string>(js["message"]) << std::endl;
-  return { "world" };
+  std::string ret = "world";
+  return ret;
 }
 
 static uint16_t request_tcpip_port = 42069;
@@ -26,7 +27,7 @@ int main() {
 
   future.wait();
 
-  auto ret_json = *future.get();
+  auto ret_json = future.get().value();
 
   std::string ret = ret_json;
 
