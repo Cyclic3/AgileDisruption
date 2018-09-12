@@ -127,8 +127,13 @@ namespace agiledisruption {
 
             {
               std::shared_lock base_lock{base_mutex};
-              if (auto handler = base->get(*op))
-                response["payload"] = (*handler)(*payload);
+              if (auto handler = base->get(*op)) {
+                try {
+                  auto ret = (*handler)(*payload);
+                  response["payload"] = ret;
+                }
+                catch (...) {}
+              }
             }
 
             std::string response_str = response.dump();
@@ -170,7 +175,7 @@ namespace agiledisruption {
     std::atomic<bool> keep_working = true;
 
   public:
-    std::future<std::optional<json>> request(std::string op, const json& js) override {
+    std::future<std::optional<json>> request(const std::string& op, const json& js) override {
       std::shared_lock lock{wait_for_me};
 
       std::promise<std::optional<json>> promise;
@@ -178,7 +183,7 @@ namespace agiledisruption {
 
       json request_js = json::object();
       request_js["op"] = op;
-      request_js["payload"].update(js);
+      request_js["payload"] = js;
 
       // Do this here, because the json library is weird about move constructors
       std::string request_str = request_js.dump();

@@ -5,6 +5,10 @@
 
 using namespace agiledisruption;
 
+namespace agiledisruption::tests::calculator {
+  api interface;
+}
+
 api a;
 
 json print(const json& js) {

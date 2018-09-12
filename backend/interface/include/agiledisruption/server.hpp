@@ -8,6 +8,11 @@
 #include <shared_mutex>
 #include <memory>
 
+#define AGILEDISRUPTION_EXPOSE_INTERFACE(...) \
+  auto interface = std::make_shared<agiledisruption::api>( \
+    std::initializer_list<std::pair<const std::string, agiledisruption::api::handler>>{__VA_ARGS__} \
+  )
+
 namespace agiledisruption {
   class api {
   public:
@@ -34,6 +39,13 @@ namespace agiledisruption {
       if (iter == _api_calls.end()) return std::nullopt;
       else return { iter->second };
     }
+
+  public:
+    api() = default;
+    api(const api&) = delete;
+    api(api&&) = delete;
+
+    inline api(std::initializer_list<decltype(_api_calls)::value_type> il) : _api_calls(il) {}
   };
 
   class channel_server {
