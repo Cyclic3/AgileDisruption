@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.9)
 
-set(PROJECT_NAME [NAME])
+set(PROJECT_NAME agiledisruption::[NAME])
 
 project(${PROJECT_NAME})
 
@@ -64,6 +64,3 @@ foreach(test ${tests})
 
   add_test(${test_name} ${test_name})
 endforeach()
-
-enable_testing()
-
