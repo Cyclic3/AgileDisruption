@@ -11,7 +11,7 @@
 #include <atomic>
 
 namespace agiledisruption {
-  class unix_fifo_server : channel_server {
+  class unix_fifo_server : public channel_server {
   public:
     std::shared_ptr<const api> base = nullptr;
     std::shared_mutex base_mutex = {};
@@ -113,11 +113,12 @@ namespace agiledisruption {
     }
   };
 
-  class unix_fifo_client : channel_client {
+  class unix_fifo_client : public channel_client {
   public:
     std::ifstream response_fifo = {};
     std::ofstream request_fifo;
-    std::string response_path = "/tmp/AgileDisruption.Client.XXXXXX";
+    std::string tmpdir = "/tmp/AgileDisruption.Client.XXXXXX";
+    std::string response_path = {};
 
     std::unordered_map<uint64_t, std::promise<std::optional<json>>> waiting_for = {};
     std::shared_mutex waiting_for_mutex = {};
@@ -175,18 +176,28 @@ namespace agiledisruption {
 
   public:
     unix_fifo_client(const std::string& path) : request_fifo(path) {
-      char* fifo = &response_path[0];
+      char* fifo = &tmpdir[0];
 
-      // Generate temporary paths until we find one we can use
-      // Note: a collusion is unlikely, so this should only run once
-      do ::mktemp(fifo);
-      while (::mkfifo(fifo, 0600));
+      ::mkdtemp(fifo);
+
+      response_path = tmpdir + "/pipe";
+
+      ::mkfifo(response_path.c_str(), 0600);
 
       worker = std::thread{&unix_fifo_client::worker_body, this};
     }
 
     ~unix_fifo_client() override {
       ::unlink(response_path.c_str());
+      ::rmdir(tmpdir.c_str());
     }
   };
+
+  std::unique_ptr<channel_server> channel_server::fifo(const std::string& path) {
+    return std::make_unique<unix_fifo_server>(path);
+  }
+
+  std::unique_ptr<channel_client> channel_client::fifo(const std::string& path) {
+    return std::make_unique<unix_fifo_client>(path);
+  }
 }

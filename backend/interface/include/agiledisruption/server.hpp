@@ -13,8 +13,8 @@ namespace agiledisruption {
   public:
     using handler = std::function<json(const json&)>;
   private:
-    std::unordered_map<std::string, handler> _api_calls;
-    mutable std::shared_mutex _api_calls_mutex;
+    std::unordered_map<std::string, handler> _api_calls = {};
+    mutable std::shared_mutex _api_calls_mutex = {};
 
   public:
     inline void add(std::string name, handler handler) {
@@ -49,7 +49,7 @@ namespace agiledisruption {
 
   public:
     //static std::shared_ptr<channel_server> tcp_ip(std::string ip, uint16_t port);
-    static std::shared_ptr<channel_server> fifo(const std::string& path);
+    static std::unique_ptr<channel_server> fifo(const std::string& path);
 
   public:
     virtual ~channel_server() = default;

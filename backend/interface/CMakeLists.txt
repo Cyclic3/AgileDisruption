@@ -40,7 +40,11 @@ endif()
 
 add_library(${PROJECT_NAME} ${source} ${platform_source})
 
-target_link_libraries(${PROJECT_NAME})
+find_package(Threads REQUIRED)
+
+target_link_libraries(${PROJECT_NAME} ${CMAKE_THREAD_LIBS_INIT})
+
+file(GLOB_RECURSE tests tests/*.cpp)
 
 foreach(test ${tests})
   file(RELATIVE_PATH test_rel ${CMAKE_SOURCE_DIR}/tests/ ${test})

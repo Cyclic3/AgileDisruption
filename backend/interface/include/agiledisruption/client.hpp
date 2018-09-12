@@ -11,7 +11,7 @@ namespace agiledisruption {
 
   public:
     //static std::shared_ptr<channel_client> tcp_ip(std::string ip, uint16_t port);
-    static std::shared_ptr<channel_client> fifo(const std::string& path);
+    static std::unique_ptr<channel_client> fifo(const std::string& path);
 
   public:
     virtual ~channel_client() = default;
