@@ -1,8 +1,11 @@
+/*
 #include "agiledisruption/server.hpp"
 #include "agiledisruption/client.hpp"
 
 #include <sys/stat.h>
 #include <unistd.h>
+#include <fcntl.h>
+#include <stdio.h>
 
 #include <fstream>
 #include <thread>
@@ -11,12 +14,29 @@
 #include <atomic>
 
 namespace agiledisruption {
+  std::optional<std::string> poll_fifo_json(FILE* fifo, std::atomic<bool>& keep_working) {
+    std::string buffer;
+
+    while (keep_working) {
+      int c = ::fgetc(fifo);
+
+      if (c == EOF) std::this_thread::yield();
+      else if (c == 0) return buffer;
+      else buffer.push_back(static_cast<char>(c));
+    }
+
+    return std::nullopt;
+  }
+
+  void lock_fd()
+
   class unix_fifo_server : public channel_server {
   public:
     std::shared_ptr<const api> base = nullptr;
     std::shared_mutex base_mutex = {};
 
-    std::ifstream request_fifo = {};
+    FILE* request_fifo = {};
+    std::string request_path;
 
     std::thread worker = {};
     std::atomic<bool> keep_working = false;
@@ -51,25 +71,20 @@ namespace agiledisruption {
     void worker_body() {
       std::shared_mutex wait_for_me;
 
-      while (keep_working) {
-        while (request_fifo.peek() == EOF) std::this_thread::yield();
-
-        std::string raw_json;
-        std::getline(request_fifo, raw_json, '\0');
-
+      while (auto current_msg = poll_fifo_json(request_fifo, keep_working)) {
         // Now we have our data, we can process it elsewhere
         // and continue reading from the fifo
         std::shared_lock lock{wait_for_me};
-        std::thread([&](){
+        std::thread([&, current_msg](){
           try {
             std::shared_lock our_lock = std::move(lock);
 
-            auto js = json::parse(raw_json);
+            auto js = json::parse(*current_msg);
 
             auto response_path = js.find("response_path");
             auto payload = js.find("payload");
             auto id = js.find("id");
-            auto op = js.find("id");
+            auto op = js.find("op");
 
             // Check we have a valid message
             // We will just drop it if it's invalid
@@ -102,14 +117,19 @@ namespace agiledisruption {
     }
 
   public:
-    unix_fifo_server(const std::string& path) {
+    unix_fifo_server(const std::string& path) : request_path(path) {
       // We don't care if this fails
-      ::unlink(path.c_str());
+      ::unlink(request_path.c_str());
 
-      if (::mkfifo(path.c_str(), 0600))
-        throw std::invalid_argument{"Could not open fifo"};
+      if (::mkfifo(request_path.c_str(), 0600))
+        throw std::invalid_argument{"Could not create fifo"};
 
-      request_fifo = std::ifstream{path};
+      request_fifo = ::fopen(request_path.c_str(), "rb");
+    }
+
+    ~unix_fifo_server() override {
+      ::fclose(request_fifo);
+      ::unlink(request_path.c_str());
     }
   };
 
@@ -131,9 +151,7 @@ namespace agiledisruption {
 
   public:
     void worker_body() {
-      while (keep_working) {
-        while (response_fifo.peek() == EOF) std::this_thread::yield();
-
+      while (auto current_msg = poll_fifo_json(request_fifo, keep_working)) {
         std::string raw_json;
         std::getline(response_fifo, raw_json, '\0');
         auto js = json::parse(raw_json);
@@ -201,3 +219,4 @@ namespace agiledisruption {
     return std::make_unique<unix_fifo_client>(path);
   }
 }
+*/

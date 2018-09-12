@@ -7,7 +7,7 @@ project(${PROJECT_NAME})
 set(CMAKE_MODULE_PATH ${PROJECT_SOURCE_DIR}/cmake)
 
 #ALL THE WARNINGS
-add_compile_options("-Wall" "-Wextra" "-Werror" "-pedantic" "-Weffc++" "-Wno-unused")
+add_compile_options("-Wall" "-Wextra" "-Werror" "-O0" "-pedantic" "-Weffc++" "-Wno-unused")
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)

@@ -48,12 +48,11 @@ namespace agiledisruption {
     }
 
   public:
-    //static std::shared_ptr<channel_server> tcp_ip(std::string ip, uint16_t port);
-    static std::unique_ptr<channel_server> fifo(const std::string& path);
+    // binds to loopback
+    static std::unique_ptr<channel_server> tcp_ip(uint16_t port);
+    //static std::unique_ptr<channel_server> fifo(const std::string& path);
 
   public:
     virtual ~channel_server() = default;
   };
-
-
 }

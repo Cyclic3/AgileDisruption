@@ -1,4 +1,3 @@
-/*
 #include "agiledisruption/server.hpp"
 #include "agiledisruption/client.hpp"
 
@@ -8,65 +7,236 @@
 #include <unistd.h>
 #include <sys/ioctl.h>
 #include <netinet/ip.h>
+#include <arpa/inet.h>
+
+#include <iostream>
 
 constexpr size_t WINDOW_SIZE = 65536;
+constexpr size_t BACKLOG = 128;
+
+static uint8_t LOOPBACK_IP[4] = { 127, 69, 4, 20 };
+
+// TODO: maybe implement max_size to prevent slow loris-esque bugs?
 
 namespace agiledisruption {
-  class unix_tcpip_server : channel_server {
-  public:
-    class client {
-    private:
-      std::string current_str;
-      int fd;
+  sockaddr_in loopback_ep(uint16_t port) {
+    sockaddr_in ret;
+    ::memcpy(&ret.sin_addr.s_addr, LOOPBACK_IP, sizeof(LOOPBACK_IP));
+    ::memset(ret.sin_zero, 0, sizeof(ret.sin_zero));
+    ret.sin_family = AF_INET;
+    ret.sin_port = htons(port);
+    return ret;
+  }
 
-    public:
-      std::optional<std::string> get_window() {
-        auto str_end = current_str.c_str();
-        ::read(fd, current_str, )
-      }
-    };
-
+  class unix_tcpip_server : public channel_server {
   private:
-    std::shared_ptr<api> bound;
-    std::shared_mutex bound_mutex;
+    std::shared_ptr<const api> base = nullptr;
+    std::shared_mutex base_mutex = {};
 
-    std::thread worker;
-    std::atomic<bool> keep_working;
+    std::thread worker = {};
+    std::atomic<bool> keep_working = false;
+
+    uint16_t port;
+    int fd = -1;
 
   public:
-    void bind(std::shared_ptr<api> b) override {
-      std::unique_lock lock(bound_mutex);
-      bound = b;
-      worker = std::thread{ &unix_tcpip::worker, this };
+    void bind(std::shared_ptr<const api> b) override {
+      std::unique_lock lock{ base_mutex };
+      keep_working = false;
+      ::shutdown(fd, SHUT_RDWR);
+      fd = -1;
+      if (worker.joinable()) worker.join();
+
+      base = b;
+      keep_working = true;
+      worker = std::thread{ &unix_tcpip_server::worker_body, this };
     }
 
     void unbind() override {
-      std::unique_lock lock(bound_mutex);
-      bound = nullptr;
-      worker.join();
-    }
-
-    void client_handler_body(int fd) {
-      while (bound) {
-        std::shared_lock lock(bound_mutex);
-        // do some receive stuff until null
-        std::string data;
-
-        ::read(fd, )
-
-        auto js = json::parse(data);
-
-        std::string ret = bound->handle(js).dump();
-
-        // send the return value, even if empty
-      }
+      std::unique_lock lock{ base_mutex };
+      keep_working = false;
+      ::shutdown(fd, SHUT_RDWR);
+      if (worker.joinable()) worker.join();
+      fd = -1;
+      base = nullptr;
     }
 
     void worker_body() {
-      while (keep_working) {
-
+      std::shared_mutex wait_for_me;
+      fd = ::socket(AF_INET, SOCK_STREAM, 0);
+      {
+        auto ep = loopback_ep(port);
+        if (
+          ::bind(fd, reinterpret_cast<const sockaddr*>(&ep), sizeof(ep)) ||
+          ::listen(fd, BACKLOG)
+        ) return;
       }
+
+      while (keep_working) {
+        // Accept the next client
+        int client = ::accept(fd, nullptr, nullptr);
+
+        // If we failed, skip this loop and try again
+        if (client < 0) continue;
+
+        // If we succeeded, spawn us a new thread to handle this client
+        std::shared_lock lock{wait_for_me};
+
+        // We need a copy of client, as the loop's value will change next iteration
+        std::thread([&, client, lock{std::move(lock)}](){
+          try {
+            (void) lock;
+
+            std::string current_msg;
+            char buffer[WINDOW_SIZE];
+
+            // Read until null
+            do {
+              ssize_t n_read = ::read(client, buffer, WINDOW_SIZE);
+              // If we hit an error or need to stop, give up
+              if (n_read < 0 || !keep_working) throw;
+              else if (n_read == 0) std::this_thread::yield();
+              current_msg.append(buffer, static_cast<size_t>(n_read));
+            }
+            while (current_msg.size() == 0 || current_msg.back());
+
+            current_msg.pop_back();
+
+            auto js = json::parse(current_msg);
+
+            auto payload = js.find("payload");
+            auto op = js.find("op");
+
+            // Check we have a valid message
+            // We will just drop it if it's invalid
+            if (
+              payload == js.end() ||
+              op == js.end()
+            ) throw;
+
+            json response;
+
+            {
+              std::shared_lock base_lock{base_mutex};
+              if (auto handler = base->get(*op))
+                response["payload"].update((*handler)(*payload));
+            }
+
+            std::string response_str = response.dump();
+
+            {
+              const char* data = response_str.c_str();
+              size_t remaining = response_str.size() + 1;
+              do {
+                ssize_t written = write(client, data, remaining);
+                if (written < 0) throw;
+                data += written;
+                remaining -= static_cast<size_t>(written);
+              }
+              while (remaining);
+            }
+          }
+          catch (...) {}
+
+          ::close(client);
+        }).detach();
+      }
+
+      wait_for_me.lock();
+      ::close(fd);
     }
+
+  public:
+    unix_tcpip_server(uint16_t port) : port(port) {}
+    ~unix_tcpip_server() override { unbind(); }
   };
+
+  class unix_tcpip_client : public channel_client {
+  public:
+    uint16_t port;
+
+    std::shared_mutex wait_for_me = {};
+    std::atomic<bool> keep_working = true;
+
+  public:
+    std::future<std::optional<json>> request(std::string op, const json& js) override {
+      std::shared_lock lock{wait_for_me};
+
+      std::promise<std::optional<json>> promise;
+      auto ret = promise.get_future();
+
+      json request_js = json::object();
+      request_js["op"] = op;
+      request_js["payload"].update(js);
+
+      // Do this here, because the json library is weird about move constructors
+      std::string request_str = request_js.dump();
+
+      std::thread{[this, request_str{std::move(request_str)}, lock{std::move(lock)}, promise{std::move(promise)}]() mutable {
+        // Shut up I am using it
+        (void) lock;
+
+        auto ep = loopback_ep(port);
+        int fd = ::socket(AF_INET, SOCK_STREAM, 0);
+
+        try {
+          if (::connect(fd, reinterpret_cast<const sockaddr*>(&ep), sizeof(ep)))
+            throw std::invalid_argument("Failed to connect");
+
+          {
+            const char* data = request_str.c_str();
+            size_t remaining = request_str.size() + 1;
+            do {
+              ssize_t written = write(fd, data, remaining);
+              if (written < 0) throw;
+              data += written;
+              remaining -= static_cast<size_t>(written);
+            }
+            while (remaining);
+          }
+
+          std::string response_str;
+          char buffer[WINDOW_SIZE];
+
+          // Read until null
+          do {
+            ssize_t n_read = ::read(fd, buffer, WINDOW_SIZE);
+            // If we hit an error or need to stop, give up
+            if (n_read < 0 || !keep_working) throw;
+            else if (n_read == 0) std::this_thread::yield();
+            else response_str.append(buffer, static_cast<size_t>(n_read));
+          }
+          while (response_str.size() == 0 || response_str.back());
+          response_str.pop_back();
+
+          // Parse the json and work out what to do with it
+          json response = json::parse(response_str);
+
+          auto maybe_data = response.find("payload");
+
+          if (maybe_data == response.end())
+            promise.set_value(std::nullopt);
+          else
+            promise.set_value(std::move(*maybe_data));
+        }
+        catch(...) { promise.set_value(std::nullopt); }
+
+        ::close(fd);
+      }}.detach();
+
+      return ret;
+    }
+
+  public:
+    unix_tcpip_client(uint16_t port) : port(port) {}
+    ~unix_tcpip_client() override {}
+  };
+
+  std::unique_ptr<channel_server> channel_server::tcp_ip(uint16_t port) {
+    return std::make_unique<unix_tcpip_server>(port);
+  }
+
+  std::unique_ptr<channel_client> channel_client::tcp_ip(uint16_t port) {
+    return std::make_unique<unix_tcpip_client>(port);
+  }
 }
-*/
