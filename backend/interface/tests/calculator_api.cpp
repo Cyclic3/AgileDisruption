@@ -25,7 +25,6 @@ namespace agiledisruption::tests::calculator::server {
 
   json multiply(json js) {
     memory[js["id"]] *= static_cast<double>(js["value"]);
-
     return nullptr;
   }
 
@@ -79,14 +78,6 @@ namespace agiledisruption::tests::calculator::client {
 }
 
 using namespace agiledisruption;
-
-static auto a = std::make_shared<api>();
-
-json print(const json& js) {
-  std::cout << static_cast<std::string>(js["message"]) << std::endl;
-  std::string ret = "world";
-  return ret;
-}
 
 int main() {
   auto server = channel_server::tcp_ip(request_tcpip_port);
