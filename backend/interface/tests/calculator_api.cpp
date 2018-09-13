@@ -9,7 +9,6 @@ namespace agiledisruption::tests::calculator::server {
   std::unordered_map<uint64_t, double> memory;
 
   json add(json js) {
-    std::cout << js << std::endl;
     memory[js["id"]] += static_cast<double>(js["value"]);
     return nullptr;
   }
@@ -66,6 +65,9 @@ namespace agiledisruption::tests::calculator::client {
 
   public:
     void add(double d) { _client->call("+", { { "id", _id }, { "value", d } }); }
+    void subtract(double d) { _client->call("-", { { "id", _id }, { "value", d } }); }
+    void multiply(double d) { _client->call("*", { { "id", _id }, { "value", d } }); }
+    void divide(double d) { _client->call("/", { { "id", _id }, { "value", d } }); }
     double get() { return _client->call("?", { { "id", _id } }).value(); }
     void set(double d) { _client->call("=", { { "id", _id }, { "value", d } }); }
 
@@ -93,8 +95,10 @@ int main() {
   agiledisruption::tests::calculator::client::calc c;
 
   c.set(4);
-  c.add(1);
+  c.multiply(100);
+  c.add(40);
+  c.subtract(20);
 
-  std::cout << c.get() << std::endl;
+  if (c.get() != 420) throw std::runtime_error("Got incorrect result");
   return 0;
 }
