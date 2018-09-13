@@ -3,7 +3,7 @@
 
 #include <iostream>
 
-constexpr uint16_t request_tcpip_port = 42069;
+constexpr uint16_t request_tcpip_port = 42070;
 
 namespace agiledisruption::tests::calculator::server {
   std::unordered_map<uint64_t, double> memory;
@@ -37,12 +37,14 @@ namespace agiledisruption::tests::calculator::server {
     return memory[js["id"]];
   }
 
-  json next_id(json js) {
+  json next_id(json) {
     static std::atomic<uint64_t> id = 0;
     return id++;
   }
 
-  AGILEDISRUPTION_EXPOSE_INTERFACE(
+  AGILEDISRUPTION_EXPOSE_INTERFACE;
+
+  AGILEDISRUPTION_DEFINE_INTERFACE(
     { "*", multiply },
     { "/", divide },
     { "+", add },

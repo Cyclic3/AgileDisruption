@@ -5,18 +5,14 @@
 
 using namespace agiledisruption;
 
-namespace agiledisruption::tests::calculator {
-  api interface;
-}
-
-api a;
+static api a;
 
 json print(const json& js) {
   std::cout << static_cast<std::string>(js) << std::endl;
   return "world";
 }
 
-int main(int argc, char *argv[]) {
+int main() {
   a.add("print", print);
 
   std::string ret = (*a.get("print"))("Hello");

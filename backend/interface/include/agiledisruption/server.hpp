@@ -8,10 +8,12 @@
 #include <shared_mutex>
 #include <memory>
 
-#define AGILEDISRUPTION_EXPOSE_INTERFACE(...) \
-  auto interface = std::make_shared<agiledisruption::api>( \
+#define AGILEDISRUPTION_DEFINE_INTERFACE(...) \
+  std::shared_ptr<agiledisruption::api> interface = std::make_shared<agiledisruption::api>( \
     std::initializer_list<std::pair<const std::string, agiledisruption::api::handler>>{__VA_ARGS__} \
   )
+
+#define AGILEDISRUPTION_EXPOSE_INTERFACE extern std::shared_ptr<agiledisruption::api> interface
 
 namespace agiledisruption {
   class api {
